@@ -1,0 +1,51 @@
+from pymol import cmd, stored
+
+def setview():
+    cmd.show_as("cartoon")
+    cmd.set_view('''-0.697201788,0.094036140,\
+    0.710663497,0.706724763,0.256227553,0.659445345,\
+    -0.120082699,0.962013900,-0.245106101,0.000067674,\
+    -0.001437171,-567.370056152,155.729125977,\
+    137.830703735,125.508926392,502.879028320,\
+    631.806457520,-19.999998093''')
+    return(None)
+
+def color(bminmax):
+    cmd.color("red")
+    cmd.select("resi where b < 0")
+    #cmd.show("spheres","sele")
+    cmd.spectrum(expression="b", palette = "red white",minimum=bminmax[0],maximum=0,selection = "sele")
+    cmd.select("resi where b > 0")
+    #cmd.show("spheres","sele")
+    cmd.spectrum(expression="b", palette = "red white white green",minimum=0,maximum=bminmax[1],selection = "sele")
+    return(None)
+
+def setbfact(filename):
+    with open(filename, "r") as f:
+        result = f.readlines()
+        blist = []
+        for row in result[1:]:
+            new = row.split(",")
+            blist.append(new)
+        bfacts = [float(row[1]) for row in blist]
+        bmax = max(bfacts)
+        print(bmax)
+        bmin = min(bfacts)
+        print(bmin)
+        bminmax = [bmin, bmax]
+        for row in blist:
+            residue = "resi " + str(row[0])
+            bfact = "b = " + str(row[1])
+            cmd.alter(residue, bfact)
+    f.close()
+    return bminmax
+
+def resi_color(filename, view = "True"):
+    if view == "True" or view == "true":
+        setview()
+    bminmax = setbfact(filename)
+    color(bminmax)
+    return(None)
+
+
+cmd.extend("resi_color", resi_color)
