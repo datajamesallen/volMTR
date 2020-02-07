@@ -46,8 +46,9 @@ agg_df = sqldf('select mis_df.aaNum, mis_df.AC as mis_AC, syn_df.AC as syn_AC fr
 
 # incorperate expected counts
 
-pos_df = pd.read_csv('all_pos_codons/NM_000833.5.fasta_codons.csv', header=0, names = ['aaNum','mis_pos','syn_pos','codon','wtaa'])
+pos_df = pd.read_csv('all_pos_codons/NM_000833.5.fasta_codons.csv')
 pos_df = sqldf('select aaNum, mis_pos, syn_pos from pos_df')
+print(pos_df)
 agg_df = sqldf('select pos_df.*, agg_df.mis_AC, agg_df.syn_AC from pos_df left join agg_df on pos_df.aaNum = agg_df.aaNum')
 real_df = agg_df.copy()
 
@@ -60,17 +61,15 @@ def calc_real_MTR(row):
     #print(row)
     temp = real_df.copy()
     window = 31
-    index = int(row['aaNum']-2)
+    index = int(row['aaNum']-1)
     maxindex = len(temp)
     if index <= 15:
         res = temp.iloc[0:index+16]
-        print(len(res))
     elif index+16 > maxindex:
         res = temp.iloc[index-15:maxindex]
-        print(len(res))
     else:
         res = temp.iloc[index-15:index+16]
-    #print(len(res))
+    winsize = len(res)
     mis_count = res.mis_AC.sum()
     syn_count = res.syn_AC.sum()
     #print(mis_count, syn_count, sep=' ')
@@ -96,7 +95,7 @@ mtr_df = pd.read_csv('ExACv1_MTR_GRIN2A.txt', sep='\t')
 
 fig, (ax1,ax2) = plt.subplots(2,1, sharex=True)
 plt.xlabel('Protein sequence position')
-ax1.set_ylabel('volMTR')
+ax1.set_ylabel('myMTR')
 ax2.set_ylabel('MTR')
 ax1.plot(real_df['aaNum'],real_df['MTR'])
 ax2.plot(mtr_df['Protein_position'], mtr_df['MTR'])

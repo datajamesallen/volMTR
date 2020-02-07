@@ -87,7 +87,7 @@ def allposs_mis_syn(codon, orig_aa):
     return (mis_count, syn_count)
 
 def seqconv_mis_syn(orf):
-    codonlist = []
+    codonlist = [['aaNum','mis_pos','syn_pos','codon','orig_aa']]
     codonorf = [orf[i:i+3] for i in range(0, len(orf), 3)]
     for i, codon in enumerate(codonorf):
         orig_aa = aa_unabrev[dna_to_aa[codon]]
