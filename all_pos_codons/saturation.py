@@ -65,18 +65,19 @@ def allposs_mis_syn(codon, orig_aa):
     syn_count = 0
     for pos, letter in enumerate(codon):
         for mut in basepairs:
+            if letter == mut:
+                continue
             if pos == 0:
                 mutcodon = mut + codon[1:]
             if pos == 1:
                 mutcodon = codon[0] + mut + codon[2]
             if pos == 2:
                 mutcodon = codon[:2] + mut
-            print(mutcodon)
             aa = codonconv(mutcodon)
-            if not aa:
-                print(codon)
             aa = aa_unabrev[aa]
             if aa:
+                if aa == 'Ter':
+                    continue
                 if aa == orig_aa:
                     syn_count += 1
                 else:

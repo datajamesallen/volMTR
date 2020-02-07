@@ -14,7 +14,8 @@ then calculate the MTR score and percentiles, and write the output file
 """
 
 pdbpath = 'h2A-SWISS-6ira.1.A.pdb'
-gnomAD_file = 'GRIN2A.csv'
+gnomAD_file = 'ExACv1_GRIN2A.csv'
+#gnomAD_file = 'GRIN2A.csv'
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -48,6 +49,62 @@ agg_df = sqldf('select mis_df.aaNum, mis_df.AC as mis_AC, syn_df.AC as syn_AC fr
 pos_df = pd.read_csv('all_pos_codons/NM_000833.5.fasta_codons.csv', header=0, names = ['aaNum','mis_pos','syn_pos','codon','wtaa'])
 pos_df = sqldf('select aaNum, mis_pos, syn_pos from pos_df')
 agg_df = sqldf('select pos_df.*, agg_df.mis_AC, agg_df.syn_AC from pos_df left join agg_df on pos_df.aaNum = agg_df.aaNum')
+real_df = agg_df.copy()
+
+print(real_df)
+
+# replicate the real MTR score
+
+def calc_real_MTR(row):
+    """ calculates the real MTR score on a per-row basis """
+    #print(row)
+    temp = real_df.copy()
+    window = 31
+    index = int(row['aaNum']-2)
+    maxindex = len(temp)
+    if index <= 15:
+        res = temp.iloc[0:index+16]
+        print(len(res))
+    elif index+16 > maxindex:
+        res = temp.iloc[index-15:maxindex]
+        print(len(res))
+    else:
+        res = temp.iloc[index-15:index+16]
+    #print(len(res))
+    mis_count = res.mis_AC.sum()
+    syn_count = res.syn_AC.sum()
+    #print(mis_count, syn_count, sep=' ')
+    mis_pos = res.mis_pos.sum()
+    syn_pos = res.syn_pos.sum()
+    if (mis_count + syn_count) > 0:
+        MTR = ((mis_count/(mis_count + syn_count))/(mis_pos/(mis_pos + syn_pos)))
+    else:
+        MTR = 0
+    return MTR
+
+dfsize = len(real_df) # number of residues
+mis_allele = real_df['mis_AC'].sum() # number of missense alleles in the gene
+syn_allele = real_df['syn_AC'].sum() # number of synonymous alleles in the gene
+total_variation = mis_allele + syn_allele # total number of variants in the gene
+
+real_df['MTR'] = real_df.apply(calc_real_MTR, axis=1)
+real_df['MTR_rank'] = real_df['MTR'].rank()
+real_df['MTR_centile'] = real_df['MTR_rank'].apply(lambda x: x / dfsize)
+
+mtr_df = pd.read_csv('ExACv1_MTR_GRIN2A.txt', sep='\t')
+#mtr_df['mtr']
+
+fig, (ax1,ax2) = plt.subplots(2,1, sharex=True)
+plt.xlabel('Protein sequence position')
+ax1.set_ylabel('volMTR')
+ax2.set_ylabel('MTR')
+ax1.plot(real_df['aaNum'],real_df['MTR'])
+ax2.plot(mtr_df['Protein_position'], mtr_df['MTR'])
+plt.savefig('Orig_MTR_result.png')
+plt.close()
+
+real_df.to_csv('Orig_MTR_result.csv', index=False)
+
 
 # create the pdb structure data
 
@@ -96,7 +153,7 @@ def calc_MTR_sphere_window(row):
     syn_pos = row['syn_pos']
     mis_pos = row['mis_pos']
     if (mis_count + syn_count) > 0:
-        MTR = (mis_count/(mis_count + syn_count)/mis_pos/(mis_pos + syn_pos))
+        MTR = ((mis_count/(mis_count + syn_count))/(mis_pos/(mis_pos + syn_pos)))
     else:
         MTR = 0
     return MTR
@@ -104,10 +161,10 @@ def calc_MTR_sphere_window(row):
 def calc_MTR_closest_window(row):
     """
     calculates the MTR score for each row in the data frame
-    base on the closest N residues from the center of each alpha carbon
+    based on the closest N residues from the center of each alpha carbon
     """
     c = np.array((row['x'],row['y'],row['z'])) # our center points
-    N = 16 # number of nearest neighbors for calc
+    N = 31 # number of nearest neighbors for calc
     mis_count = 0
     syn_count = 0
     temp = all_df.copy()
@@ -126,11 +183,45 @@ def calc_MTR_closest_window(row):
     syn_pos = row['syn_pos']
     mis_pos = row['mis_pos']
     if (mis_count + syn_count) > 0:
-        MTR = (mis_count/(mis_count + syn_count)/mis_pos/(mis_pos + syn_pos))
+        MTR = ((mis_count/(mis_count + syn_count))/(mis_pos/(mis_pos + syn_pos)))
     else:
         MTR = 0
     return MTR
 
+from sklearn.preprocessing import MinMaxScaler
+
+def calc_MTR_sigmoid(row):
+    """
+    calculates the MTR score for each row in the data frame
+    with weights, where the closer residues to the center points 
+    contribute more to the number of missense/synonymous variants
+    """
+    c = np.array((row['x'],row['y'],row['z'])) # our center points
+    mis_count = 0
+    syn_count = 0
+    temp = all_df.copy()
+    # np.linalg.norm will calculate the euclidean distance between the two arrays
+    temp['dist'] = temp.apply(lambda x: np.linalg.norm(np.array((x['x'],x['y'],x['z']))-c), axis=1)
+    min_d = temp['dist'].min()
+    max_d = temp['dist'].max()
+    temp['mtr_dist_contrib'] = temp.apply(lambda x: (1-(x['dist'] - min_d)/(max_d - min_d)), axis=1)
+    #print(temp)
+    #temp = temp.sort_values('mtr_dist_contrib', descending=True)
+    # iterate through all values and weight the contribution to the window
+    for i,irow in temp.iterrows():
+        contrib = irow['mtr_dist_contrib']
+        if not np.isfinite(contrib):
+            contrib = 1
+        mis_count += (irow['mis_AC'] * contrib)
+        syn_count += (irow['syn_AC'] * contrib)
+    print(syn_count, mis_count, sep=' ')
+    syn_pos = row['syn_pos']
+    mis_pos = row['mis_pos']
+    if (mis_count + syn_count) > 0:
+        MTR = ((mis_count/(mis_count + syn_count))/(mis_pos/(mis_pos + syn_pos)))
+    else:
+        MTR = 0
+    return MTR
 
 
 dfsize = len(all_df) # number of residues
@@ -146,15 +237,15 @@ all_df['MTR'] = all_df.apply(calc_MTR_closest_window, axis=1)
 all_df['MTR_rank'] = all_df['MTR'].rank()
 all_df['MTR_centile'] = all_df['MTR_rank'].apply(lambda x: x / dfsize)
 
-mtr_df = pd.read_csv('MTR_table.txt', sep='\t')
-mtr_df['MTR']
+mtr_df = pd.read_csv('MTR_table.csv', sep='\t')
+#mtr_df['MTR']
 
 fig, (ax1,ax2) = plt.subplots(2,1, sharex=True)
 plt.xlabel('Protein sequence position')
 ax1.set_ylabel('volMTR')
 ax2.set_ylabel('MTR')
 ax1.plot(all_df['aaNum'],all_df['MTR'])
-ax2.plot(mtr_df['Protein_position'], mtr_df['MTR'])
+ax2.plot(mtr_df['protein_position'], mtr_df['mtr'])
 plt.savefig('fig_MTR_result.png')
 plt.close()
 
